@@ -53,7 +53,7 @@ start_process :: proc(process_name: string) -> (subprocess: SubProcess, err: os.
 	p: os.Process; {
 		defer os.close(stdout_write)
 		p = os.process_start({
-            working_dir = "./",
+			working_dir = "./",
 			command = {"example_process.bin"},
 			stdout  = stdout_write,
 			stdin   = stdin_read,
