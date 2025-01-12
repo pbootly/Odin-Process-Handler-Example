@@ -3,19 +3,53 @@ package main
 import os "core:os/os2"
 import    "core:fmt"
 
+SubProcess :: struct {
+	process: os.Process,
+	pipes: ProcessPipes
+}
+
+ProcessPipes :: struct {
+	stdout_read: ^os.File,
+	stdout_write: ^os.File,
+	stdin_read: ^os.File,
+	stdin_write: ^os.File,
+}
+
 main :: proc() {
-	if err := run(); err != nil {
-		os.print_error(os.stderr, err, "failed to execute run")
+	p, err := start_process("example_process.bin");
+	
+	if err != nil {
+		os.print_error(os.stderr, err, "failed to execute process")
+	}
+	
+	defer os.close(p.pipes.stdout_write)
+	defer os.close(p.pipes.stdin_read)
+
+	// TODO: read back response without needing write closure (app ending on quit working)
+	//message_process("hello\n", p.pipes)
+	message_process("quit\n", p.pipes)
+	os.close(p.pipes.stdin_write)
+	
+	output, _ := os.read_entire_file(p.pipes.stdout_read, context.temp_allocator)
+
+	_,_= os.process_wait(p.process)
+	fmt.print(string(output))
+	return
+		
+}
+
+message_process :: proc(msg: string, pipes: ProcessPipes) {
+	message := transmute([]u8)msg
+	_, err := os.write(pipes.stdin_write, message)
+	if err != nil {
+		fmt.eprintln("Process write error: ", err)
 	}
 }
 
-run :: proc() -> (err: os.Error) {
-	stdout_read, stdout_write := os.pipe() or_return
-	defer os.close(stdout_write)
-	
-	stdin_read, stdin_write := os.pipe() or_return
-	defer os.close(stdin_read)
+start_process :: proc(process_name: string) -> (subprocess: SubProcess, err: os.Error) {
 
+	stdout_read, stdout_write := os.pipe() or_return
+	stdin_read, stdin_write := os.pipe() or_return
 	p: os.Process; {
 		defer os.close(stdout_write)
 		p = os.process_start({
@@ -25,20 +59,15 @@ run :: proc() -> (err: os.Error) {
 			stdin   = stdin_read,
 		}) or_return
 	}
-	
-	message := "quit\n"
-	message_bytes := transmute([]u8)message
-	_, err = os.write(stdin_write, message_bytes)
-	if err != nil {
-		fmt.eprintln("Writing error: ", err)
-		return err
+	sp := SubProcess {
+		process = p,
+		pipes = ProcessPipes {
+			stdout_read = stdout_read,
+			stdout_write = stdout_write,
+			stdin_read = stdin_read,
+			stdin_write = stdin_write,
+		}
 	}
-	os.close(stdin_write) or_return
 
-	output := os.read_entire_file(stdout_read, context.temp_allocator) or_return
-
-	_ = os.process_wait(p) or_return
-
-	fmt.print(string(output))
-	return
+	return sp, nil
 }
