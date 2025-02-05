@@ -2,6 +2,8 @@ package main
 
 import os "core:os/os2"
 import    "core:fmt"
+import io "core:io"
+import "core:bufio"
 
 SubProcess :: struct {
 	process: os.Process,
@@ -24,18 +26,33 @@ main :: proc() {
 	
 	defer os.close(p.pipes.stdout_write)
 	defer os.close(p.pipes.stdin_read)
-
-	// TODO: read back response without needing write closure (app ending on quit working)
-	//message_process("hello\n", p.pipes)
-	message_process("quit\n", p.pipes)
-	os.close(p.pipes.stdin_write)
+	defer os.close(p.pipes.stdin_write)
 	
-	output, _ := os.read_entire_file(p.pipes.stdout_read, context.temp_allocator)
+	messages := [3]string{"hellope", "subprocess", "here"}
 
+	for msg in messages {
+		message_process(msg, p.pipes)
+		response := read_line(p.pipes.stdout_read)
+		fmt.print(response)
+	}
+	message_process("quit\n", p.pipes)
+	response := read_line(p.pipes.stdout_read)
+	fmt.print("Final response: ", response)
 	_,_= os.process_wait(p.process)
-	fmt.print(string(output))
 	return
-		
+}
+
+read_line :: proc(pipe: ^os.File) -> string {
+	r: bufio.Reader
+	buffer: [1024]byte
+	bufio.reader_init_with_buf(&r, pipe.stream, buffer[:])
+	defer bufio.reader_destroy(&r)
+	
+	msg, err := bufio.reader_read_string(&r, '\n', context.allocator)
+	if err != nil {
+		os.print_error(os.stderr, err, "failed to read from pipe")
+	}
+	return msg
 }
 
 message_process :: proc(msg: string, pipes: ProcessPipes) {
@@ -54,7 +71,7 @@ start_process :: proc(process_name: string) -> (subprocess: SubProcess, err: os.
 		defer os.close(stdout_write)
 		p = os.process_start({
 			working_dir = "./",
-			command = {"example_process.bin"},
+			command = {process_name},
 			stdout  = stdout_write,
 			stdin   = stdin_read,
 		}) or_return
